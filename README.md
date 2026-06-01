@@ -1,20 +1,20 @@
 # vulnscan
 
-A defensive, Anthropic-powered source-code security auditor. It reads code you own, reasons about it like an experienced security researcher, and produces a structured report of vulnerabilities — with a plain-prose explanation of why each one is exploitable and a concrete remediation. It does **not** generate runnable exploits, shellcode, weaponized proof-of-concept scripts, or ready-to-fire injection strings.
+A defensive, Anthropic-powered source-code security auditor. It reads code you own, reasons about it like an experienced security researcher, and produces a structured report of vulnerabilities, with a plain-prose explanation of why each one is exploitable and a concrete remediation. It does **not** generate runnable exploits, shellcode, weaponized proof-of-concept scripts, or ready-to-fire injection strings.
 
 ---
 
 ## Features
 
-- **Multi-language** — Python, JavaScript/JSX, TypeScript/TSX, Java, Go, Ruby, PHP, C, C++, C#, Rust, Swift, Kotlin, Shell, SQL.
-- **Deep per-file reasoning** — one Anthropic API call per file; Claude traces taint flow, trust boundaries, injection classes, memory safety, weak crypto, hardcoded secrets, and logic flaws.
-- **Severity-ranked findings** — each finding carries a title, severity (CRITICAL / HIGH / MEDIUM / LOW), line numbers, a "Why" prose explanation, and a "Fix" remediation.
-- **Semgrep prefilter** — optional fast first pass that narrows which files reach the API; Semgrep hits are attached as context so Claude can confirm, dismiss, or deepen each lead.
-- **Diff mode** — `--diff` restricts the scan to files changed in git, with changed line ranges passed to Claude as focus context; pre-existing findings outside the diff are tagged separately.
-- **Pre-commit hook** — `--install-hook` writes a `.git/hooks/pre-commit` that runs `vulnscan --diff --staged` before every commit.
-- **Four output formats** — `terminal` (colored rich report), `json` (stable schema), `sarif` (SARIF 2.1.0 for GitHub code scanning), `markdown` (sticky PR comment).
-- **CI gate** — distinct exit codes let you fail a CI check only when actual findings cross a severity threshold; inconclusive scans (API errors) exit with a separate code so they are never mistaken for a clean pass.
-- **Retry and fast-fail** — transient errors (HTTP 429, 500, 502, 503, 504, connection resets) are retried with exponential backoff; a 401 auth error aborts the run immediately with setup guidance.
+- **Multi-language** - Python, JavaScript/JSX, TypeScript/TSX, Java, Go, Ruby, PHP, C, C++, C#, Rust, Swift, Kotlin, Shell, SQL.
+- **Deep per-file reasoning** - one Anthropic API call per file; Claude traces taint flow, trust boundaries, injection classes, memory safety, weak crypto, hardcoded secrets, and logic flaws.
+- **Severity-ranked findings** - each finding carries a title, severity (CRITICAL / HIGH / MEDIUM / LOW), line numbers, a "Why" prose explanation, and a "Fix" remediation.
+- **Semgrep prefilter** - optional fast first pass that narrows which files reach the API; Semgrep hits are attached as context so Claude can confirm, dismiss, or deepen each lead.
+- **Diff mode** - `--diff` restricts the scan to files changed in git, with changed line ranges passed to Claude as focus context; pre-existing findings outside the diff are tagged separately.
+- **Pre-commit hook** - `--install-hook` writes a `.git/hooks/pre-commit` that runs `vulnscan --diff --staged` before every commit.
+- **Four output formats** - `terminal` (colored rich report), `json` (stable schema), `sarif` (SARIF 2.1.0 for GitHub code scanning), `markdown` (sticky PR comment).
+- **CI gate** - distinct exit codes let you fail a CI check only when actual findings cross a severity threshold; inconclusive scans (API errors) exit with a separate code so they are never mistaken for a clean pass.
+- **Retry and fast-fail** - transient errors (HTTP 429, 500, 502, 503, 504, connection resets) are retried with exponential backoff; a 401 auth error aborts the run immediately with setup guidance.
 
 ---
 
@@ -22,7 +22,7 @@ A defensive, Anthropic-powered source-code security auditor. It reads code you o
 
 - Python 3.10 or later.
 - An Anthropic API key (<https://console.anthropic.com/>).
-- Semgrep 1.50 or later — optional; enables the prefilter that cuts API cost on large repos.
+- Semgrep 1.50 or later - optional; enables the prefilter that cuts API cost on large repos.
 
 ---
 
@@ -260,7 +260,7 @@ vulnscan --install-hook
 
 This writes `.git/hooks/pre-commit` and makes it executable. The hook runs `vulnscan --diff --staged --block-on $VULNSCAN_BLOCK_SEVERITY` before every commit.
 
-- Exits 0 immediately when no scannable files are staged — no API call is made.
+- Exits 0 immediately when no scannable files are staged, no API call is made.
 - Blocks the commit on **CRITICAL** findings by default.
 - Prints HIGH / MEDIUM / LOW findings without blocking (below the default threshold).
 - If `vulnscan` is not on PATH when the hook fires, the hook warns and exits 0 rather than breaking unrelated commits.
@@ -308,13 +308,13 @@ The workflow at `.github/workflows/vulnscan.yml` is ready to use. It triggers on
 - Runs `vulnscan --diff <base_ref> --format sarif --block-on $VULNSCAN_BLOCK_SEVERITY > vulnscan.sarif`. If vulnscan exits before writing anything (e.g., missing key, exit 2), a minimal empty SARIF is written so the upload step never sees a missing file.
 - Uploads the SARIF with `github/codeql-action/upload-sarif@v3` (category `vulnscan`).
 - Runs `vulnscan --diff <base_ref> --format markdown > vulnscan.md` for PR comments.
-- Posts or updates a sticky PR comment via `marocchino/sticky-pull-request-comment@v2` (header `vulnscan`) — re-runs update the same comment.
+- Posts or updates a sticky PR comment via `marocchino/sticky-pull-request-comment@v2` (header `vulnscan`), re-runs update the same comment.
 - A final step reads the captured exit code from the scan step and fails the workflow if it is non-zero, which gates the PR check. Exit 3 (inconclusive) fails the check.
 
 ### Where findings appear
 
-- **Inline annotations** in the PR **Files changed** tab — one annotation per finding at the relevant line, driven by the SARIF upload.
-- **Security → Code scanning** in the repo — aggregated dashboard across branches and PRs, filterable by severity. Findings auto-close when a subsequent run stops reporting them.
+- **Inline annotations** in the PR **Files changed** tab - one annotation per finding at the relevant line, driven by the SARIF upload.
+- **Security → Code scanning** in the repo - aggregated dashboard across branches and PRs, filterable by severity. Findings auto-close when a subsequent run stops reporting them.
 - **One sticky PR comment** with the severity counts table and the top critical/high findings, updated in place on every push.
 
 ### Tuning
@@ -332,9 +332,9 @@ The workflow at `.github/workflows/vulnscan.yml` is ready to use. It triggers on
 
 2. **Prefilter (optional).** `vulnscan.prefilter` runs `semgrep --config auto --json --quiet --metrics=off` on the full target. Files with no Semgrep hits skip the API pass entirely; files with hits carry their hits as context into step 3.
 
-3. **Deep reasoning.** `vulnscan.analyzer` sends one request to the Anthropic API per file (model: `claude-opus-4-8` by default). The system prompt instructs Claude to behave as a defensive auditor: trace taint flow from untrusted inputs, check trust boundaries, identify injection classes, memory-safety issues, weak crypto, hardcoded secrets, and logic flaws. In diff mode, the changed line ranges are included so Claude can focus review without losing file context. The model is instructed to return a single JSON object; the parser strips stray code fences and handles malformed responses without crashing — a parse failure marks the file as `failed` rather than crashing the whole run.
+3. **Deep reasoning.** `vulnscan.analyzer` sends one request to the Anthropic API per file (model: `claude-opus-4-8` by default). The system prompt instructs Claude to behave as a defensive auditor: trace taint flow from untrusted inputs, check trust boundaries, identify injection classes, memory-safety issues, weak crypto, hardcoded secrets, and logic flaws. In diff mode, the changed line ranges are included so Claude can focus review without losing file context. The model is instructed to return a single JSON object; the parser strips stray code fences and handles malformed responses without crashing, a parse failure marks the file as `failed` rather than crashing the whole run.
 
-4. **Retry.** Transient errors (HTTP 429, 500, 502, 503, 504, connection resets) are retried up to three attempts total with exponential backoff (1 s, 2 s). An HTTP 401 stops the run immediately — retrying a bad key produces no useful result.
+4. **Retry.** Transient errors (HTTP 429, 500, 502, 503, 504, connection resets) are retried up to three attempts total with exponential backoff (1 s, 2 s). An HTTP 401 stops the run immediately, retrying a bad key produces no useful result.
 
 5. **Reporting.** `vulnscan.cli` renders findings with `rich` in terminal mode, or calls the appropriate formatter for json/sarif/markdown. The exit code is determined after all files finish: 1 if blocking findings were found, 3 if any files failed, 0 if all files analyzed cleanly.
 
@@ -414,4 +414,4 @@ vulnscan --no-prefilter ./src
 
 **Exit code 3 — inconclusive results**
 
-One or more files failed to analyze after all retries (e.g., persistent network issues or API errors). The summary prints which files failed. An exit-3 run is **not** equivalent to "no findings" — it means the result is incomplete. Re-run once the underlying connectivity or API issue is resolved.
+One or more files failed to analyze after all retries (e.g., persistent network issues or API errors). The summary prints which files failed. An exit-3 run is **not** equivalent to "no findings", it means the result is incomplete. Re-run once the underlying connectivity or API issue is resolved.
