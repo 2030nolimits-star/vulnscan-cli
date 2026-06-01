@@ -1,0 +1,144 @@
+name: vulnscan
+
+# Run on every pull request, plus pushes to the default branch so the Security
+# tab stays up to date with what is actually on `main`. The PR run is what gates
+# merges; the push run keeps the dashboard fresh.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      block_severity:
+        description: "Severity threshold that fails the check (CRITICAL or HIGH)."
+        required: false
+        default: "CRITICAL"
+        type: choice
+        options:
+          - CRITICAL
+          - HIGH
+
+permissions:
+  contents: read
+  pull-requests: write     # for the sticky comment
+  security-events: write   # for the SARIF upload
+
+concurrency:
+  group: vulnscan-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: Scan changed code
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
+    env:
+      # The repository secret is the ONLY place the key lives — never hardcode.
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      # Block severity: workflow_dispatch input > repo variable > CRITICAL default.
+      # Admins can opt into HIGH-blocking by setting the repo variable
+      # `VULNSCAN_BLOCK_SEVERITY=HIGH` without editing this file.
+      VULNSCAN_BLOCK_SEVERITY: >-
+        ${{ github.event.inputs.block_severity
+            || vars.VULNSCAN_BLOCK_SEVERITY
+            || 'CRITICAL' }}
+    steps:
+      - name: Check out the PR head
+        uses: actions/checkout@v4
+        with:
+          # fetch-depth: 0 gives us the base ref so --diff can compute hunks.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install vulnscan
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Install Semgrep prefilter (cost control)
+        run: pip install "semgrep>=1.50"
+        continue-on-error: true
+
+      - name: Resolve diff base ref
+        id: base
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="origin/${{ github.base_ref }}"
+          else
+            # On push to the default branch, diff against the previous commit so
+            # the Security tab gets per-push deltas rather than the full repo.
+            BASE_REF="HEAD~1"
+          fi
+          echo "ref=${BASE_REF}" >> "$GITHUB_OUTPUT"
+          echo "Computed base ref: ${BASE_REF}"
+
+      - name: Run vulnscan (SARIF for code scanning)
+        id: scan
+        shell: bash
+        # We don't let a non-zero exit from vulnscan stop the workflow here —
+        # we want the SARIF upload and PR comment to happen first, and gate
+        # the check at the end on the same severity threshold.
+        continue-on-error: true
+        run: |
+          set +e
+          vulnscan \
+            --diff "${{ steps.base.outputs.ref }}" \
+            --format sarif \
+            --block-on "${VULNSCAN_BLOCK_SEVERITY}" \
+            > vulnscan.sarif
+          VULNSCAN_EXIT=$?
+          echo "vulnscan_exit=${VULNSCAN_EXIT}" >> "$GITHUB_OUTPUT"
+          echo "vulnscan exit code: ${VULNSCAN_EXIT}"
+          # Emit a fallback empty SARIF if vulnscan produced nothing
+          # (e.g. ANTHROPIC_API_KEY missing → exit 2 before stdout was written).
+          if [ ! -s vulnscan.sarif ]; then
+            cat > vulnscan.sarif <<'EOF'
+          {
+            "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+            "version": "2.1.0",
+            "runs": [
+              { "tool": { "driver": { "name": "vulnscan" } }, "results": [] }
+            ]
+          }
+          EOF
+          fi
+
+      - name: Upload SARIF to GitHub code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: vulnscan.sarif
+          category: vulnscan
+
+      - name: Render PR comment summary
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          vulnscan \
+            --diff "${{ steps.base.outputs.ref }}" \
+            --format markdown \
+            > vulnscan.md || true
+          if [ ! -s vulnscan.md ]; then
+            printf '## vulnscan\n\n_No scannable changes in this PR._\n' > vulnscan.md
+          fi
+
+      - name: Post or update sticky PR comment
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: vulnscan
+          path: vulnscan.md
+
+      - name: Fail the check if vulnscan flagged blocking findings
+        shell: bash
+        run: |
+          EXIT="${{ steps.scan.outputs.vulnscan_exit }}"
+          if [ "${EXIT}" != "0" ]; then
+            echo "::error::vulnscan exited with ${EXIT} (block-on=${VULNSCAN_BLOCK_SEVERITY})."
+            exit "${EXIT}"
+          fi

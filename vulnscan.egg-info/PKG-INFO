@@ -1,0 +1,116 @@
+Metadata-Version: 2.4
+Name: vulnscan
+Version: 0.1.0
+Summary: Defensive source-code security auditor powered by the Anthropic API.
+Author: vulnscan contributors
+License: MIT
+Keywords: security,audit,static-analysis,anthropic,claude
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: Console
+Classifier: Intended Audience :: Developers
+Classifier: Topic :: Security
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: anthropic>=0.39.0
+Requires-Dist: click>=8.1
+Requires-Dist: rich>=13.7
+Provides-Extra: prefilter
+Requires-Dist: semgrep>=1.50; extra == "prefilter"
+
+# vulnscan
+
+A defensive source-code security auditor powered by the Anthropic API. `vulnscan` reads code you own, reasons about it like an experienced security researcher, and produces a color-coded report of weaknesses with a "Why" and a "Fix" for each finding.
+
+## Install
+
+```bash
+git clone <this repo>
+cd vulnscan
+pip install -e .
+```
+
+Python 3.10+ is required.
+
+## API key
+
+`vulnscan` calls the Anthropic API, so you need an API key from <https://console.anthropic.com/>. Export it before running:
+
+```bash
+export ANTHROPIC_API_KEY=sk-...
+# Windows PowerShell:
+# $env:ANTHROPIC_API_KEY = "sk-..."
+```
+
+If the key is missing, `vulnscan` exits with a clear error and a non-zero status — it never silently no-ops.
+
+## Usage
+
+Scan a whole tree:
+
+```bash
+vulnscan ./src
+```
+
+Scan a single file:
+
+```bash
+vulnscan app.py
+```
+
+Override the model (defaults to `claude-opus-4-8`):
+
+```bash
+vulnscan --model claude-sonnet-4-6 ./src
+```
+
+Force the whole-file scan even when Semgrep is installed:
+
+```bash
+vulnscan --no-prefilter ./src
+```
+
+## Semgrep prefilter (optional, on by default)
+
+`vulnscan` can run a fast Semgrep first pass and only send files Semgrep flags to the Anthropic API. On a large repo this cuts API token cost dramatically while preserving the deep-reasoning quality where it matters.
+
+Install Semgrep alongside vulnscan:
+
+```bash
+pipx install semgrep
+# or
+pip install -e '.[prefilter]'
+```
+
+When the `semgrep` binary is on `PATH`, vulnscan will:
+
+1. Run `semgrep --config auto --json` over the target path.
+2. Send each flagged file to Claude *with the Semgrep hits attached as context* — rule id, message, and line range — so Claude can confirm, dismiss, or deepen each lead and look for related issues nearby.
+3. Skip files with no Semgrep hits from the expensive API pass (they still count as "scanned").
+
+If Semgrep isn't installed, vulnscan prints a dim note and falls back to the original whole-file scan — nothing breaks. You can also disable prefiltering explicitly with `--no-prefilter`.
+
+Each finding in the report is tagged with its origin: `[semgrep lead]` if it stems from a Semgrep hit Claude confirmed, or `[independent]` if Claude found it on its own. The summary shows how many files were scanned, how many Semgrep flagged, how many reached the deep-reasoning pass, and the total Anthropic API call count — so the cost savings are visible.
+
+Exit codes:
+
+- `0` — no findings, or only `MEDIUM` / `LOW` findings.
+- `1` — at least one `CRITICAL` or `HIGH` finding (useful as a CI gate).
+- `2` — configuration error (e.g. missing API key).
+
+## Supported languages
+
+Python, JavaScript, TypeScript (including JSX/TSX), Java, Go, Ruby, PHP, C, C++, C/C++ headers, C#, Rust, Swift, Kotlin, Shell, and SQL.
+
+Vendored and generated directories (`.git`, `node_modules`, `venv`, `.venv`, `__pycache__`, `dist`, `build`, `.next`, `vendor`, `target`) are skipped. Files larger than ~200 KB are skipped to keep API usage reasonable.
+
+## How it works
+
+1. **Discovery.** `vulnscan.scanner` walks the path you give it, filters to supported source extensions, and reads each file as UTF-8.
+2. **Analysis.** For each file, `vulnscan.analyzer` sends one request to the Anthropic API with a strong system prompt that asks Claude to behave as a defensive auditor and reason step by step about taint flow, trust boundaries, injection classes, memory safety, hardcoded secrets, weak crypto, and logic flaws. The model is told to return a single JSON object describing findings; the response is parsed defensively (stray code fences are stripped, malformed JSON yields a clear note instead of a crash).
+3. **Reporting.** `vulnscan.cli` renders findings with `rich`: per-file panels, severity-colored badges, a "Why" line that explains the attack vector in prose, and a green "Fix" line with the concrete remediation. A summary table aggregates counts across the run.
+
+## Not an exploit generator
+
+`vulnscan` is strictly defensive. The system prompt forbids the model from producing runnable exploit payloads, shellcode, weaponized proof-of-concept scripts, or ready-to-fire injection strings. You get a description of each vulnerability and how to fix it — not a weapon. Use this tool on code you own or are authorized to audit.

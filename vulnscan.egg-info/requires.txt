@@ -1,0 +1,6 @@
+anthropic>=0.39.0
+click>=8.1
+rich>=13.7
+
+[prefilter]
+semgrep>=1.50
